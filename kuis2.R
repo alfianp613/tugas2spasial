@@ -25,18 +25,18 @@ df_spasial_sp <- as(df_spasial, "Spatial")
 # EDA
 # Correlation Plot
 plot(covidjatim$kepadatan_penduduk,
-     covidjatim$skor_risiko, xlab="Kepadatan Penduduk", 
-     ylab="Skor Risiko COVID-19", pch=20, col="orange", cex=2)
+     covidjatim$fatality_rate, xlab="Kepadatan Penduduk", 
+     ylab="Fatality Rate COVID-19", pch=20, col="orange", cex=2)
 plot(covidjatim$jumlah_faskes,
-     covidjatim$skor_risiko, xlab="Jumlah Faskes", 
-     ylab="Skor Risiko COVID-19", pch=20, col="orange", cex=2)
+     covidjatim$fatality_rate, xlab="Jumlah Faskes", 
+     ylab="Fatality Rate COVID-19", pch=20, col="orange", cex=2)
 
 plot(covidjatim$jumlah_miskin,
-     covidjatim$skor_risiko, xlab="Jumlah Penduduk Miskin (ribu)", 
-     ylab="Skor Risiko COVID-19", pch=20, col="orange", cex=2)
+     covidjatim$fatality_rate, xlab="Jumlah Penduduk Miskin (ribu)", 
+     ylab="Fatality Rate COVID-19", pch=20, col="orange", cex=2)
 plot(covidjatim$persentase_keluhan_kesehatan,
-     covidjatim$skor_risiko, xlab="Persentase Keluhan Kesehatan Masyarakat", 
-     ylab="Skor Risiko COVID-19", pch=20, col="orange", cex=2)
+     covidjatim$fatality_rate, xlab="Persentase Keluhan Kesehatan Masyarakat", 
+     ylab="Fatality Rate COVID-19", pch=20, col="orange", cex=2)
 
 plot(covidjatim$kepadatan_penduduk,
      covidjatim$jumlah_kasus_covid, xlab="Kepadatan Penduduk", 
@@ -55,7 +55,7 @@ plot(covidjatim$persentase_keluhan_kesehatan,
 # Peta Tematik
 mapview(df_spasial[,c("KabupatenKota","jumlah_kasus_covid")], zcol = "KabupatenKota", cex="jumlah_kasus_covid", 
         layer.name="KabupatenKota", alpha.regions = 0.6)
-mapview(df_spasial[,c("KabupatenKota","skor_risiko")], zcol = "KabupatenKota", cex="skor_risiko", 
+mapview(df_spasial[,c("KabupatenKota","fatality_rate")], zcol = "KabupatenKota", cex="fatality_rate", 
         layer.name="KabupatenKota", alpha.regions = 0.6)
 mapview(df_spasial[,c("KabupatenKota","kepadatan_penduduk")], zcol = "KabupatenKota", cex="kepadatan_penduduk", 
         layer.name="KabupatenKota", alpha.regions = 0.6)
@@ -70,12 +70,12 @@ mapview(df_spasial[,c("KabupatenKota","persentase_keluhan_kesehatan")], zcol = "
 # -----GWR-----
 ## -----Regresi linier klasik-----
 ## Dataset:
-## y = skor risiko
+## y = Fatality rate
 ## X1 = Kepadatan Penduduk
 ## X2 = Jumlah Fasilitas Kesehatan
 ## X3 = Jumlah Masyarakat Miskin (ribu)
 ## X4 = Persentase keluhan kesehatan masyarakat
-model1 <- lm(skor_risiko  ~ kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+model1 <- lm(fatality_rate  ~ kepadatan_penduduk+jumlah_faskes+jumlah_miskin
              +persentase_keluhan_kesehatan, data=covidjatim)
 summary(model1)
 err.regklasik<- residuals(model1)
@@ -95,21 +95,21 @@ vif(model1)
 ### Dependensi Spasial
 coords <- coordinates(df_spasial_sp)
 bobot <- nb2listw(knn2nb(knearneigh(coords)))
-moran.test(df_spasial_sp$skor_risiko, bobot, alternative="greater")
+moran.test(df_spasial_sp$fatality_rate, bobot, alternative="greater")
 
 ### Perhitungan bandwith menggunakan fungsi pembobot kernel Gaussian
-# band = bw.gwr(skor_risiko~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+# band = bw.gwr(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
 #               +persentase_keluhan_kesehatan, data=df_spasial_sp, approach="CV", kernel="gaussian",
 #               adaptive=TRUE)
-# gwr_model<-gwr.basic(skor_risiko~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+# gwr_model<-gwr.basic(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
 #                      +persentase_keluhan_kesehatan, data=df_spasial_sp, bw=band,kernel = "gaussian")
 
 
-b.gwr <- gwr.sel(skor_risiko~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+b.gwr <- gwr.sel(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
                  +persentase_keluhan_kesehatan, data=covidjatim, coords = cbind(covidjatim$Lon,covidjatim$Lat),
                  gweight = gwr.Gauss)
 ### Run GWR Model
-gwr.model <- gwr(skor_risiko~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+gwr.model <- gwr(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
                  +persentase_keluhan_kesehatan, data=covidjatim, coords = cbind(covidjatim$Lon,covidjatim$Lat),
                  gweight = gwr.Gauss,bandwidth = b.gwr,hatmatrix=TRUE) 
 ### Hasil Analisis
@@ -297,36 +297,18 @@ data.frame("MODEL" = c("NBR","GWNBR"),
            "AIC" = c(AIC(nb.model),aicgw))%>% arrange(AIC)
 
 # ----GWLR----
-pasiencovid = read.xlsx("Spasial Covid 2.xlsx",sheet="fix")
-
 ## ---- Fit Logistic Regression ----
 ## Dataset:
-## Y = Hasil perawatan (meninggal/sembuh)
-## X1 = usia
-## X2 = jumlah komorbid
-## X3 = batuk (0/1)
-## X4 = pilek (0/1)
-## X5 = demam (0/1)
-## X6 = thorax (0/1)
-## X7 = ECG (0/1)
-## X8 = oksigen (0/1)
-## X9 = pneumonia (0/1)
-## X10 = Hipertensi (0/1)
-## X11 = Diabetes Meillitus (0/1)
-logisticreg = glm(kode_hasil_perwatan  ~ usia +jumlah_kokmorbid +batuk 
-           +pilek +demam+thorax+ECG +oksigen +pneumonia +Hipertensi +Diabetes.Meillitus
-           , data=pasiencovid, family=binomial(link="logit"))
+## y = Status Risiko (Risiko Rendah (0)/Risiko Sedang(1))
+## X1 = Kepadatan Penduduk
+## X2 = Jumlah Fasilitas Kesehatan
+## X3 = Jumlah Masyarakat Miskin (ribu)
+## X4 = Persentase keluhan kesehatan masyarakat
+logisticreg = glm(status_risiko  ~ kepadatan_penduduk+jumlah_faskes+jumlah_miskin
+                  +persentase_keluhan_kesehatan
+           , data=covidjatim, family=binomial(link="logit"))
 summary(logisticreg)
 #### -----Multikolinieritas-----
 vif(logisticreg)
-## ----GWNBR----
-df2 <- as_tibble(pasiencovid)
-df_spasial2 <- st_as_sf(df2, coords = c("lon", "lat"), crs = 4326)
-df_spasial_sp2 <- as(df_spasial2, "Spatial")
+## ----GWLR----
 
-DM<-gw.dist(dp.locat=coordinates(df_spasial_sp2))
-
-bw.ggwr(kode_hasil_perwatan  ~ usia +jumlah_kokmorbid +batuk 
-        +pilek +demam+thorax+ECG +oksigen +pneumonia +Hipertensi +Diabetes.Meillitus, 
-        data=df_spasial_sp2, family =binomial(link="logit"), approach="CV",
-        kernel="bisquare",adaptive=TRUE,longlat=F,dMat=DM)
