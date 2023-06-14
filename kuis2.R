@@ -98,12 +98,6 @@ bobot <- nb2listw(knn2nb(knearneigh(coords)))
 moran.test(df_spasial_sp$fatality_rate, bobot, alternative="greater")
 
 ### Perhitungan bandwith menggunakan fungsi pembobot kernel Gaussian
-# band = bw.gwr(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
-#               +persentase_keluhan_kesehatan, data=df_spasial_sp, approach="CV", kernel="gaussian",
-#               adaptive=TRUE)
-# gwr_model<-gwr.basic(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
-#                      +persentase_keluhan_kesehatan, data=df_spasial_sp, bw=band,kernel = "gaussian")
-
 
 b.gwr <- gwr.sel(fatality_rate~kepadatan_penduduk+jumlah_faskes+jumlah_miskin
                  +persentase_keluhan_kesehatan, data=covidjatim, coords = cbind(covidjatim$Lon,covidjatim$Lat),
@@ -132,6 +126,37 @@ anova(gwr.model)
 
 data.frame("MODEL" = c("GWR","Regresi Klasik"),
            "AIC" = c(gwr.model[["results"]][["AICh"]],AIC(model1)))%>% arrange(AIC)
+
+df_gwlr = as.data.frame(res_adpbi$SDF)
+rownames(df_gwlr) = covidjatim$'KabupatenKota'
+
+#intercept
+intercept = gwr.model$SDF$`(Intercept)`
+intercept
+
+x1 = gwr.model$SDF$kepadatan_penduduk
+x2 = gwr.model$SDF$jumlah_faskes
+x3 = gwr.model$SDF$jumlah_miskin
+x4 = gwr.model$SDF$persentase_keluhan_kesehatan
+
+
+##=== MENDAPATKAN NILAI PVALUE
+#TV --> T-Value
+
+pvalx1 = 2*pt(abs(gwr.model$SDF$kepadatan_penduduk_se_EDF),df=38,lower.tail = FALSE) #ubah t-value menjadi p-value
+pvalx1
+pvalx2 = 2*pt(abs(gwr.model$SDF$jumlah_faskes_se_EDF),df=38,lower.tail = FALSE)
+pvalx2
+pvalx3 = 2*pt(abs(gwr.model$SDF$jumlah_miskin_se_EDF),df=38,lower.tail = FALSE)
+pvalx3
+pvalx4 = 2*pt(abs(gwr.model$SDF$persentase_keluhan_kesehatan_se_EDF),df=38,lower.tail = FALSE)
+pvalx4
+
+library(writexl)
+outputGWLR = data.frame(covidjatim$KabupatenKota,intercept,x1,x2,x3,x4,pvalx1,pvalx2,pvalx3,pvalx4)
+writexl::write_xlsx(outputGWLR,"outputGWR.xlsx")
+
+
 # ----GWPR----
 ## ----Fit GLM Poisson----
 ## Dataset:
@@ -296,6 +321,15 @@ print(dev)
 data.frame("MODEL" = c("NBR","GWNBR"),
            "AIC" = c(AIC(nb.model),aicgw))%>% arrange(AIC)
 
+# Output GWNBR
+Weight.gwr = data.frame(W)
+Coeff.GWNBR = data.frame(model$koefisien)
+Zstat.GWNBR = data.frame(model$Z_hitung)
+Zprob.GWNBR = data.frame(model$Z_prob)
+writexl::write_xlsx(Weight.gwr,"weightGWNBR.xlsx")
+writexl::write_xlsx(Coeff.GWNBR,"CoeffGWNBR.xlsx")
+writexl::write_xlsx(Zstat.GWNBR,"ZstatGWNBR.xlsx")
+writexl::write_xlsx(Zprob.GWNBR,"ZprobGWNBR.xlsx")
 # ----GWLR----
 ## ---- Fit Logistic Regression ----
 ## Dataset:
@@ -304,11 +338,170 @@ data.frame("MODEL" = c("NBR","GWNBR"),
 ## X2 = Jumlah Fasilitas Kesehatan
 ## X3 = Jumlah Masyarakat Miskin (ribu)
 ## X4 = Persentase keluhan kesehatan masyarakat
+
+
+#preprocessing
+sum(is.na(covidjatim))
+str(covidjatim)
+covidjatim <- covidjatim[complete.cases(covidjatim), ]
+
+# ============= Logistic Regression ==================
+
+
+#Logistic Regression
 logisticreg = glm(status_risiko  ~ kepadatan_penduduk+jumlah_faskes+jumlah_miskin
-                  +persentase_keluhan_kesehatan
-           , data=covidjatim, family=binomial(link="logit"))
+                  +persentase_keluhan_kesehatan,
+                  data=covidjatim, family=binomial(link="logit"))
 summary(logisticreg)
-#### -----Multikolinieritas-----
+
+AIC(logisticreg)
+
+### -----Uji Asumsi-----
+err.regklasik2<- residuals(logisticreg)
+
+# -----Normalitas-----
+shapiro.test(err.regklasik2) #pake uji ini karena data <40
+
+hist(err.regklasik2)
+qqnorm(err.regklasik2,datax=T)
+qqline(rnorm(length(err.regklasik2),mean(err.regklasik2),sd(err.regklasik2)),datax=T, col="red")
+
+# -----Autokorelasi-----
+dwtest(logisticreg)
+
+# -----Heterogenitas-----
+bptest(logisticreg)
+
+# -----Multikolinieritas-----
 vif(logisticreg)
-## ----GWLR----
+
+
+#calculate McFadden's R-squared for model
+pR2(logisticreg)['McFadden']
+
+
+
+### =========== GLWR ==============
+
+# Buat distance matrix berdasarkan latitude dan longitude
+library(sp)
+data.sp.GWR=covidjatim
+coordinates(data.sp.GWR) <-10:11 #kolom menyatakan letak Long-Lat
+
+DM = gw.dist(dp.locat = coordinates(data.sp.GWR))
+
+#---- FIXED Gaussian
+bw_fixgas <- bw.ggwr(logisticreg$formula,
+                     data=data.sp.GWR,
+                     approach="AICc",
+                     kernel="gaussian",
+                     adaptive=FALSE,
+                     family = "binomial",
+                     dMat=DM)
+
+
+res_fixgas <-ggwr.basic(logisticreg$formula,
+                        data=data.sp.GWR,
+                        bw=bw_fixgas,
+                        kernel="gaussian",
+                        adaptive=FALSE,
+                        family = "binomial",
+                        dMat=DM)
+res_fixgas
+
+#---- FIXED Gaussian
+bw_fixbi <- bw.ggwr(logisticreg$formula,
+                    data=data.sp.GWR,
+                    approach="AICc",
+                    kernel="bisquare",
+                    adaptive=FALSE,
+                    family = "binomial",
+                    dMat=DM)
+
+
+res_fixbi <-ggwr.basic(logisticreg$formula,
+                       data=data.sp.GWR,
+                       bw=bw_fixbi,
+                       kernel="bisquare",
+                       adaptive=FALSE,
+                       family = "binomial",
+                       dMat=DM)
+res_fixbi
+
+
+
+#Adaptive Gaussian tidak dapat digunakan karena
+#karena parameter adaptive = TRUE hanya dapat digunakan dengan kernel yang memiliki bobot non-negatif.
+
+#Namun, ketika menggunakan kernel Gaussian dengan `adaptive = FALSE`, 
+#tidak ada masalah karena dalam kasus tersebut, tidak ada pendekatan adaptif yang digunakan. 
+#Bandwidth lokal tetap konstan untuk setiap observasi, 
+#dan karena tidak ada perhitungan bobot adaptif yang melibatkan nilai negatif, error tidak muncul.
+
+
+
+#----- ADAPTIVE BISQUARE
+bw_adpbi <- bw.ggwr(logisticreg$formula,
+                    data=data.sp.GWR,
+                    approach="AICc",
+                    kernel="bisquare",
+                    adaptive=TRUE,
+                    family = "binomial",
+                    dMat=DM)
+
+res_adpbi <- ggwr.basic(logisticreg$formula,
+                        data=data.sp.GWR,
+                        bw=bw_adpbi,
+                        kernel="bisquare",
+                        adaptive=TRUE,
+                        family = "binomial",
+                        dMat=DM)
+
+res_adpbi
+
+
+### Evaluasi Model
+
+model = c("LogisticReg","GWLR-Fix Gauss", "GWLR-Fix Bisquare", "GWLR-Adpv Bisquare")
+R2 = c(0.1406, 0.3023, 0.3060,0.3630)
+AIC = c(AIC(logisticreg),50.6924,50.4305,49.7580)
+
+evaluasi = data.frame(model,R2,AIC)
+evaluasi
+
+## Dari evaluasi didapat model terbaik yaitu gwlr adaptive bisquare
+
+
+#================ UJI SIGNIFIKANSI PARAMETER TIAP MODEL
+##=== ESTIMASI PARAMETER
+df_gwlr = as.data.frame(res_adpbi$SDF)
+rownames(df_gwlr) = covidjatim$'KabupatenKota'
+
+#intercept
+intercept = res_adpbi$SDF$Intercept
+intercept
+
+x1 = res_adpbi$SDF$kepadatan_penduduk
+x2 = res_adpbi$SDF$jumlah_faskes
+x3 = res_adpbi$SDF$jumlah_miskin
+x4 = res_adpbi$SDF$persentase_keluhan_kesehatan
+
+
+##=== MENDAPATKAN NILAI PVALUE
+#TV --> T-Value
+
+pvalx1 = 2*pt(abs(res_adpbi$SDF$kepadatan_penduduk_TV),df=38,lower.tail = FALSE) #ubah t-value menjadi p-value
+pvalx1
+pvalx2 = 2*pt(abs(res_adpbi$SDF$jumlah_faskes_TV),df=38,lower.tail = FALSE)
+pvalx2
+pvalx3 = 2*pt(abs(res_adpbi$SDF$jumlah_miskin_TV),df=38,lower.tail = FALSE)
+pvalx3
+pvalx4 = 2*pt(abs(res_adpbi$SDF$persentase_keluhan_kesehatan_TV),df=38,lower.tail = FALSE)
+pvalx4
+
+##--- EXPORT HASIL DALAM FORMAT XLSX
+setwd("D:/All about Collage/Perkuliahan/Semester 6/Analisis Data Spasial/Tugas + Kuis")
+library(writexl)
+outputGWLR = data.frame(covidjatim$KabupatenKota,intercept,x1,x2,x3,x4,pvalx1,pvalx2,pvalx3,pvalx4)
+writexl::write_xlsx(outputGWLR,"outputGWLR.xlsx")
 
